@@ -25,19 +25,26 @@ jobs:
         $zipFile = Get-ChildItem -Filter "*.zip" | Select-Object -First 1
         if ($zipFile) {
             Write-Host "Распаковка архива: $($zipFile.Name)"
-            Expand-Archive -Path $zipFile.FullName -DestinationPath . -Force
-            # Перемещаем файлы наружу, если они запакованы во вложенную папку
-            $subDirs = Get-ChildItem -Directory
-            if ($subDirs.Count -eq 1) {
-                Move-Item -Path "$($subDirs.FullName)\*" -Destination . -Force
-            }
+            Expand-Archive -Path $zipFile.FullName -DestinationPath .\unpacked_source -Force
         } else {
             Write-Error "ZIP архив не найден в репозитории!"
             exit 1
         }
 
     - name: Configure CMake
-      run: cmake -B build -G "Visual Studio 17 2022" -A x64 -DCMAKE_BUILD_TYPE=Release
+      shell: powershell
+      run: |
+        # Ищем, где именно в распакованных файлах лежит CMakeLists.txt
+        $cmakeFile = Get-ChildItem -Path .\unpacked_source -Filter "CMakeLists.txt" -Recurse | Select-Object -First 1
+        if (-not $cmakeFile) {
+            Write-Error "Критическая ошибка: Файл CMakeLists.txt не найден внутри вашего ZIP-архива!"
+            exit 1
+        }
+        $sourceDir = $cmakeFile.Directory.FullName
+        Write-Host "Файл конфигурации найден в папке: $sourceDir"
+        
+        # Запускаем конфигурацию из правильной папки
+        cmake -S "$sourceDir" -B build -G "Visual Studio 17 2022" -A x64 -DCMAKE_BUILD_TYPE=Release
 
     - name: Build Plugin
       run: cmake --build build --config Release
@@ -46,7 +53,14 @@ jobs:
       shell: powershell
       run: |
         New-Item -ItemType Directory -Force -Path .\Artifacts
-        Get-ChildItem -Path .\build -Filter "*.vst3" -Recurse | Copy-Item -Destination .\Artifacts -Recurse
+        $vst3Items = Get-ChildItem -Path .\build -Filter "*.vst3" -Recurse
+        if (-not $vst3Items) {
+            Write-Host "Прямые файлы .vst3 не найдены, ищем скомпилированные папки..."
+            $vst3Items = Get-ChildItem -Path .\build -Directory -Filter "*.vst3" -Recurse
+        }
+        foreach ($item in $vst3Items) {
+            Copy-Item -Path $item.FullName -Destination .\Artifacts -Recurse -Force
+        }
         Compress-Archive -Path .\Artifacts\* -DestinationPath .\vst3_plugin_windows_x64.zip
 
     - name: Upload VST3 Zip
