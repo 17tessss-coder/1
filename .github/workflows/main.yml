@@ -18,33 +18,34 @@ jobs:
 
     - name: Setup MSVC Toolchain
       uses: ilammy/msvc-dev-cmd@v1
+      with:
+        arch: amd64
 
     - name: Unpack Source Code
       shell: powershell
       run: |
         $zipFile = Get-ChildItem -Filter "*.zip" | Select-Object -First 1
         if ($zipFile) {
-            Write-Host "Распаковка архива: $($zipFile.Name)"
+            Write-Host "Unpacking archive: $($zipFile.Name)"
             Expand-Archive -Path $zipFile.FullName -DestinationPath .\unpacked_source -Force
         } else {
-            Write-Error "ZIP архив не найден в репозитории!"
+            Write-Error "ZIP archive not found!"
             exit 1
         }
 
     - name: Configure CMake
       shell: powershell
       run: |
-        # Ищем, где именно в распакованных файлах лежит CMakeLists.txt
         $cmakeFile = Get-ChildItem -Path .\unpacked_source -Filter "CMakeLists.txt" -Recurse | Select-Object -First 1
         if (-not $cmakeFile) {
-            Write-Error "Критическая ошибка: Файл CMakeLists.txt не найден внутри вашего ZIP-архива!"
+            Write-Error "CMakeLists.txt not found inside ZIP archive!"
             exit 1
         }
         $sourceDir = $cmakeFile.Directory.FullName
-        Write-Host "Файл конфигурации найден в папке: $sourceDir"
+        Write-Host "Found project directory: $sourceDir"
         
-        # Запускаем конфигурацию из правильной папки
-        cmake -S "$sourceDir" -B build -G "Visual Studio 17 2022" -A x64 -DCMAKE_BUILD_TYPE=Release
+        # Используем генератор Ninja вместо Visual Studio, чтобы избежать ошибки инстанса VS
+        cmake -S "$sourceDir" -B build -G "Ninja" -DCMAKE_BUILD_TYPE=Release
 
     - name: Build Plugin
       run: cmake --build build --config Release
@@ -55,7 +56,7 @@ jobs:
         New-Item -ItemType Directory -Force -Path .\Artifacts
         $vst3Items = Get-ChildItem -Path .\build -Filter "*.vst3" -Recurse
         if (-not $vst3Items) {
-            Write-Host "Прямые файлы .vst3 не найдены, ищем скомпилированные папки..."
+            Write-Host "Direct .vst3 files not found, searching directories..."
             $vst3Items = Get-ChildItem -Path .\build -Directory -Filter "*.vst3" -Recurse
         }
         foreach ($item in $vst3Items) {
